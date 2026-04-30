@@ -38,6 +38,7 @@ import { allWorkouts, workoutLibrary } from "./data/workoutLibrary";
 const AUTH_STORAGE_KEY = "trainharder-auth";
 const SESSION_STORAGE_KEY = "trainharder-active-session";
 const HISTORY_STORAGE_KEY = "trainharder-session-history";
+const VIDEO_STORAGE_KEY = "trainharder-exercise-videos";
 
 const accentClasses = {
   cyan: {
@@ -143,6 +144,46 @@ const formatDate = (value) =>
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+
+const extractUrlFromEmbed = (value) => {
+  const trimmed = value.trim();
+  const iframeSrc = trimmed.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
+  const anchorHref = trimmed.match(/<a[^>]+href=["']([^"']+)["']/i)?.[1];
+
+  return iframeSrc || anchorHref || trimmed;
+};
+
+const normalizeInstagramEmbed = (value) => {
+  if (!value.trim()) {
+    return { embedUrl: "", error: "" };
+  }
+
+  try {
+    const url = new URL(extractUrlFromEmbed(value));
+    const hostname = url.hostname.replace(/^www\./, "");
+    const isInstagram = hostname === "instagram.com" || hostname === "instagr.am";
+
+    if (!isInstagram) {
+      return { embedUrl: "", error: "Use a public Instagram post or reel URL." };
+    }
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    const contentType = parts[0] === "reels" ? "reel" : parts[0];
+    const shortcode = parts[1];
+    const allowedTypes = new Set(["p", "reel", "tv"]);
+
+    if (!allowedTypes.has(contentType) || !shortcode) {
+      return { embedUrl: "", error: "Instagram URL should look like /p/code or /reel/code." };
+    }
+
+    return {
+      embedUrl: `https://www.instagram.com/${contentType}/${shortcode}/embed`,
+      error: "",
+    };
+  } catch {
+    return { embedUrl: "", error: "Paste a valid Instagram URL or iframe embed code." };
+  }
+};
 
 function LoginView({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -319,7 +360,7 @@ function FamilyCard({ family, isActive, onSelect }) {
             <Icon size={21} />
           </div>
           <span className={`rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}>
-            {family.stats}
+            {family.featuredVideoUrl ? "Video ready" : family.stats}
           </span>
         </div>
 
@@ -369,6 +410,7 @@ function CategoryTabs({ family, activeCategoryId, onChange }) {
 
 function WorkoutCard({ workout, family, onAdd, onOpen, isQueued }) {
   const accent = accentClasses[family.accent];
+  const hasVideo = Boolean(workout.videoUrl);
 
   return (
     <article className="light-panel flex h-full flex-col rounded-lg p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lift">
@@ -403,8 +445,15 @@ function WorkoutCard({ workout, family, onAdd, onOpen, isQueued }) {
         <span className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">
           {workout.equipment}
         </span>
-        <span className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">
-          Video slot
+        <span
+          className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold ${
+            hasVideo
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-slate-200 text-slate-600"
+          }`}
+        >
+          <Video size={13} />
+          {hasVideo ? "Instagram ready" : "Video slot"}
         </span>
       </div>
 
@@ -423,6 +472,46 @@ function WorkoutCard({ workout, family, onAdd, onOpen, isQueued }) {
         </button>
       </div>
     </article>
+  );
+}
+
+function FeaturedFamilyVideo({ family }) {
+  if (!family.featuredVideoUrl) {
+    return null;
+  }
+
+  const accent = accentClasses[family.accent];
+
+  return (
+    <div className="mt-5 grid overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white lg:grid-cols-[minmax(280px,420px)_1fr]">
+      <div className="min-h-[420px] bg-slate-900 p-3">
+        <iframe
+          title={`${family.name} Instagram video`}
+          className="h-[560px] max-h-[72vh] w-full rounded-md border-0 bg-white"
+          src={family.featuredVideoUrl}
+          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      </div>
+      <div className="flex flex-col justify-center p-5 sm:p-6">
+        <span className={`mb-3 inline-flex w-fit rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}>
+          {family.featuredVideoLabel || "Featured Instagram Video"}
+        </span>
+        <h3 className="text-3xl font-black">{family.name}</h3>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">{family.summary}</p>
+        <a
+          className="focus-ring mt-5 inline-flex w-fit items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
+          href={family.featuredVideoUrl.replace("/embed", "")}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open on Instagram
+          <ArrowRight size={16} />
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -506,12 +595,33 @@ function SessionPanel({ sessionItems, onToggle, onRemove, onFinish }) {
   );
 }
 
-function WorkoutDetail({ workout, family, onClose, onAdd, isQueued }) {
+function WorkoutDetail({ workout, family, onClose, onAdd, isQueued, onSaveVideo, onRemoveVideo }) {
+  const [videoInput, setVideoInput] = useState("");
+  const [videoError, setVideoError] = useState("");
+
+  useEffect(() => {
+    setVideoInput(workout?.videoUrl || "");
+    setVideoError("");
+  }, [workout?.id, workout?.videoUrl]);
+
   if (!workout) {
     return null;
   }
 
   const accent = accentClasses[family.accent];
+  const hasVideo = Boolean(workout.videoUrl);
+
+  const saveVideo = () => {
+    const result = normalizeInstagramEmbed(videoInput);
+
+    if (result.error) {
+      setVideoError(result.error);
+      return;
+    }
+
+    setVideoError("");
+    onSaveVideo(workout.id, result.embedUrl);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-slate-950/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center">
@@ -525,18 +635,34 @@ function WorkoutDetail({ workout, family, onClose, onAdd, isQueued }) {
             >
               <X size={18} />
             </button>
-            <div className="flex h-full min-h-[250px] flex-col justify-end">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg bg-white text-slate-950">
-                <Video size={28} />
+            {hasVideo ? (
+              <div className="flex h-full min-h-[420px] items-center">
+                <iframe
+                  title={`${workout.name} Instagram video`}
+                  className="h-[620px] max-h-[72vh] w-full rounded-lg border-0 bg-white shadow-edge"
+                  src={workout.videoUrl}
+                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
               </div>
-              <p className={`mb-2 inline-flex w-fit rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}>
-                {workout.videoUrl ? "Video ready" : "Video slot"}
-              </p>
-              <h3 className="text-3xl font-black">{workout.name}</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                {workout.familyName} | {workout.categoryName}
-              </p>
-            </div>
+            ) : (
+              <div className="flex h-full min-h-[250px] flex-col justify-end">
+                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg bg-white text-slate-950">
+                  <Video size={28} />
+                </div>
+                <p
+                  className={`mb-2 inline-flex w-fit rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}
+                >
+                  Instagram slot
+                </p>
+                <h3 className="text-3xl font-black">{workout.name}</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-300">
+                  {workout.familyName} | {workout.categoryName}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="p-5 sm:p-7">
@@ -571,6 +697,60 @@ function WorkoutDetail({ workout, family, onClose, onAdd, isQueued }) {
                     <p className="text-sm leading-6 text-slate-700">{cue}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-lg font-black">Instagram video</h4>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Paste a public Instagram post, reel URL, or iframe embed code.
+                  </p>
+                </div>
+                <div
+                  className={`hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:flex ${
+                    hasVideo ? "bg-emerald-200 text-emerald-900" : "bg-slate-200 text-slate-600"
+                  }`}
+                >
+                  <Video size={18} />
+                </div>
+              </div>
+              <label className="mt-4 block">
+                <span className="sr-only">Instagram video URL</span>
+                <input
+                  className="focus-ring w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
+                  value={videoInput}
+                  onChange={(event) => setVideoInput(event.target.value)}
+                  placeholder="https://www.instagram.com/reel/SHORTCODE/"
+                />
+              </label>
+              {videoError ? (
+                <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {videoError}
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <button
+                  className={`focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-black transition ${accent.button}`}
+                  onClick={saveVideo}
+                >
+                  <Video size={17} />
+                  Save video
+                </button>
+                {hasVideo ? (
+                  <button
+                    className="focus-ring flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    onClick={() => {
+                      setVideoInput("");
+                      setVideoError("");
+                      onRemoveVideo(workout.id);
+                    }}
+                  >
+                    <X size={17} />
+                    Remove
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -641,6 +821,7 @@ function Dashboard({ auth, onLogout }) {
   const [activeWorkout, setActiveWorkout] = useState(null);
   const [sessionItems, setSessionItems] = useStoredState(SESSION_STORAGE_KEY, []);
   const [history, setHistory] = useStoredState(HISTORY_STORAGE_KEY, []);
+  const [exerciseVideos, setExerciseVideos] = useStoredState(VIDEO_STORAGE_KEY, {});
 
   useEffect(() => {
     setSelectedCategoryId(selectedFamily.categories[0].id);
@@ -675,8 +856,11 @@ function Dashboard({ auth, onLogout }) {
           accent: selectedFamily.accent,
         }));
 
-    return source;
-  }, [query, selectedCategory, selectedFamily]);
+    return source.map((workout) => ({
+      ...workout,
+      videoUrl: exerciseVideos[workout.id] || workout.videoUrl || "",
+    }));
+  }, [query, selectedCategory, selectedFamily, exerciseVideos]);
 
   const queuedIds = useMemo(
     () => new Set(sessionItems.map((item) => item.id)),
@@ -731,6 +915,33 @@ function Dashboard({ auth, onLogout }) {
 
   const openWorkout = (workout) => {
     setActiveWorkout(workout);
+  };
+
+  const saveExerciseVideo = (workoutId, videoUrl) => {
+    setExerciseVideos((current) => ({
+      ...current,
+      [workoutId]: videoUrl,
+    }));
+    setActiveWorkout((current) =>
+      current?.id === workoutId ? { ...current, videoUrl } : current,
+    );
+    setSessionItems((current) =>
+      current.map((item) => (item.id === workoutId ? { ...item, videoUrl } : item)),
+    );
+  };
+
+  const removeExerciseVideo = (workoutId) => {
+    setExerciseVideos((current) => {
+      const next = { ...current };
+      delete next[workoutId];
+      return next;
+    });
+    setActiveWorkout((current) =>
+      current?.id === workoutId ? { ...current, videoUrl: "" } : current,
+    );
+    setSessionItems((current) =>
+      current.map((item) => (item.id === workoutId ? { ...item, videoUrl: "" } : item)),
+    );
   };
 
   const activeWorkoutFamily =
@@ -898,11 +1109,14 @@ function Dashboard({ auth, onLogout }) {
           </div>
 
           {!query ? (
-            <CategoryTabs
-              family={selectedFamily}
-              activeCategoryId={selectedCategoryId}
-              onChange={setSelectedCategoryId}
-            />
+            <>
+              <CategoryTabs
+                family={selectedFamily}
+                activeCategoryId={selectedCategoryId}
+                onChange={setSelectedCategoryId}
+              />
+              <FeaturedFamilyVideo family={selectedFamily} />
+            </>
           ) : null}
 
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -939,6 +1153,8 @@ function Dashboard({ auth, onLogout }) {
         isQueued={activeWorkout ? queuedIds.has(activeWorkout.id) : false}
         onClose={() => setActiveWorkout(null)}
         onAdd={addToSession}
+        onSaveVideo={saveExerciseVideo}
+        onRemoveVideo={removeExerciseVideo}
       />
     </main>
   );

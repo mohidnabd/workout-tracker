@@ -41,3 +41,13 @@ Add these environment variables in Vercel Project Settings:
 - `WORKOUT_SESSION_SECRET`
 
 The production login endpoint lives in `api/login.js`.
+
+## Instagram Videos
+
+Open any exercise card, paste a public Instagram post or reel URL into the
+Instagram video field, and save it. The app converts links like
+`https://www.instagram.com/reel/SHORTCODE/` into an iframe embed and stores the
+video mapping in browser local storage.
+
+Private Instagram content or posts that block embedding may not render inside
+the iframe.
