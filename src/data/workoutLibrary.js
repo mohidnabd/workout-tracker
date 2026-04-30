@@ -360,8 +360,6 @@ export const workoutLibrary = [
       "https://images.unsplash.com/photo-1599058917212-d750089bc07e?auto=format&fit=crop&w=1400&q=80",
     summary: "Bodyweight strength, skill progressions, tension, and control.",
     stats: "4 skill paths",
-    featuredVideoUrl: "https://www.instagram.com/reel/DWXuehpjOkl/embed",
-    featuredVideoLabel: "Featured Calisthenics Reel",
     categories: [
       {
         id: "cali-push",
@@ -378,7 +376,7 @@ export const workoutLibrary = [
             prescription: "4 sets x 6-10 reps",
             tempo: "Head travels forward",
             cues: ["Hips high", "Elbows angle back", "Press floor away"],
-            videoUrl: "",
+            videoUrl: "https://www.instagram.com/reel/DWXuehpjOkl/embed/",
           },
           {
             id: "bench-dip",

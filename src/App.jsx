@@ -177,13 +177,15 @@ const normalizeInstagramEmbed = (value) => {
     }
 
     return {
-      embedUrl: `https://www.instagram.com/${contentType}/${shortcode}/embed`,
+      embedUrl: `https://www.instagram.com/${contentType}/${shortcode}/embed/`,
       error: "",
     };
   } catch {
     return { embedUrl: "", error: "Paste a valid Instagram URL or iframe embed code." };
   }
 };
+
+const getInstagramPermalink = (embedUrl) => embedUrl.replace(/\/embed\/?$/, "/");
 
 function LoginView({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -360,7 +362,7 @@ function FamilyCard({ family, isActive, onSelect }) {
             <Icon size={21} />
           </div>
           <span className={`rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}>
-            {family.featuredVideoUrl ? "Video ready" : family.stats}
+            {family.stats}
           </span>
         </div>
 
@@ -472,46 +474,6 @@ function WorkoutCard({ workout, family, onAdd, onOpen, isQueued }) {
         </button>
       </div>
     </article>
-  );
-}
-
-function FeaturedFamilyVideo({ family }) {
-  if (!family.featuredVideoUrl) {
-    return null;
-  }
-
-  const accent = accentClasses[family.accent];
-
-  return (
-    <div className="mt-5 grid overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white lg:grid-cols-[minmax(280px,420px)_1fr]">
-      <div className="min-h-[420px] bg-slate-900 p-3">
-        <iframe
-          title={`${family.name} Instagram video`}
-          className="h-[560px] max-h-[72vh] w-full rounded-md border-0 bg-white"
-          src={family.featuredVideoUrl}
-          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
-      </div>
-      <div className="flex flex-col justify-center p-5 sm:p-6">
-        <span className={`mb-3 inline-flex w-fit rounded-md px-2 py-1 text-xs font-black ${accent.chip}`}>
-          {family.featuredVideoLabel || "Featured Instagram Video"}
-        </span>
-        <h3 className="text-3xl font-black">{family.name}</h3>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">{family.summary}</p>
-        <a
-          className="focus-ring mt-5 inline-flex w-fit items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
-          href={family.featuredVideoUrl.replace("/embed", "")}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open on Instagram
-          <ArrowRight size={16} />
-        </a>
-      </div>
-    </div>
   );
 }
 
@@ -636,7 +598,7 @@ function WorkoutDetail({ workout, family, onClose, onAdd, isQueued, onSaveVideo,
               <X size={18} />
             </button>
             {hasVideo ? (
-              <div className="flex h-full min-h-[420px] items-center">
+              <div className="flex h-full min-h-[420px] flex-col justify-center gap-3">
                 <iframe
                   title={`${workout.name} Instagram video`}
                   className="h-[620px] max-h-[72vh] w-full rounded-lg border-0 bg-white shadow-edge"
@@ -646,6 +608,15 @@ function WorkoutDetail({ workout, family, onClose, onAdd, isQueued, onSaveVideo,
                   loading="lazy"
                   referrerPolicy="strict-origin-when-cross-origin"
                 />
+                <a
+                  className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
+                  href={getInstagramPermalink(workout.videoUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open on Instagram
+                  <ArrowRight size={16} />
+                </a>
               </div>
             ) : (
               <div className="flex h-full min-h-[250px] flex-col justify-end">
@@ -827,9 +798,9 @@ function Dashboard({ auth, onLogout }) {
     setSelectedCategoryId(selectedFamily.categories[0].id);
   }, [selectedFamilyId, selectedFamily.categories]);
 
-  const selectedCategory = selectedFamily.categories.find(
-    (category) => category.id === selectedCategoryId,
-  );
+  const selectedCategory =
+    selectedFamily.categories.find((category) => category.id === selectedCategoryId) ||
+    selectedFamily.categories[0];
 
   const filteredWorkouts = useMemo(() => {
     const source = query.trim()
@@ -1083,6 +1054,7 @@ function Dashboard({ auth, onLogout }) {
               isActive={selectedFamilyId === family.id && !query}
               onSelect={() => {
                 setSelectedFamilyId(family.id);
+                setSelectedCategoryId(family.categories[0].id);
                 setQuery("");
               }}
             />
@@ -1115,7 +1087,6 @@ function Dashboard({ auth, onLogout }) {
                 activeCategoryId={selectedCategoryId}
                 onChange={setSelectedCategoryId}
               />
-              <FeaturedFamilyVideo family={selectedFamily} />
             </>
           ) : null}
 
